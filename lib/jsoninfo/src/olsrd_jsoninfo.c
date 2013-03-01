@@ -98,25 +98,13 @@ static int ipc_socket;
 #define HTTP_VERSION "HTTP/1.1"
 
 /**Response types */
-#define HTTP_200 HTTP_VERSION " 200 OK\r\n"
-#define HTTP_400 HTTP_VERSION " 400 Bad Request\r\n"
-#define HTTP_404 HTTP_VERSION " 404 Not Found\r\n"
+#define HTTP_200 HTTP_VERSION " 200 OK"
+#define HTTP_400 HTTP_VERSION " 400 Bad Request"
+#define HTTP_404 HTTP_VERSION " 404 Not Found"
 
 #define HTTP_400_MSG "<html><h1>400 - ERROR</h1><hr><i>" PLUGIN_NAME " version " PLUGIN_VERSION  "</i></html>"
 #define HTTP_404_MSG "<html><h1>404 - ERROR, no such file</h1><hr>This server does not support file requests!<br><br><i>" PLUGIN_NAME " version " PLUGIN_VERSION  "</i></html>"
 
-typedef enum {
-  HTTP_BAD_REQ,
-  HTTP_BAD_FILE,
-  HTTP_OK
-} http_header_type;
-
-struct http_stats {
-  uint32_t ok_hits;
-  uint32_t dyn_hits;
-  uint32_t err_hits;
-  uint32_t ill_hits;
-};
 
 /* IPC initialization function */
 static int plugin_ipc_init(void);
@@ -148,7 +136,8 @@ static void ipc_print_interfaces(struct autobuf *);
 static void ipc_print_plugins(struct autobuf *);
 static void ipc_print_olsrd_conf(struct autobuf *abuf);
 
-static size_t build_http_header(http_header_type type, const char *mime, bool binary_data, uint32_t msgsize, char *buf, uint32_t bufsize);
+static size_t build_http_header(const char *status, const char *mime, 
+  uint32_t msgsize, char *buf, uint32_t bufsize);
 
 
 #define TXT_IPC_BUFSIZE 256
@@ -174,6 +163,9 @@ static size_t build_http_header(http_header_type type, const char *mime, bool bi
 
 /* this data is not JSON format but olsrd.conf format */
 #define SIW_OLSRD_CONF 0x1000
+
+/* this data is not JSON format but Cross-origin resource sharing headers */
+#define SIW_CORS 0x2000
 
 #define MAX_CLIENTS 3
 
@@ -539,26 +531,33 @@ ipc_action(int fd, void *data __attribute__ ((unused)), unsigned int flags __att
     ssize_t s = recv(ipc_connection, (void *)&requ, sizeof(requ), 0);   /* Win32 needs the cast here */
     if (0 < s) {
       requ[s] = 0;
-      /* print out the requested tables */
-      if (0 != strstr(requ, "/olsrd.conf"))
-        send_what |= SIW_OLSRD_CONF;
-      else if (0 != strstr(requ, "/all"))
-        send_what = SIW_ALL;
-      else {
-        // these are the two overarching categories
-        if (0 != strstr(requ, "/runtime")) send_what |= SIW_RUNTIME_ALL;
-        if (0 != strstr(requ, "/startup")) send_what |= SIW_STARTUP_ALL;
-        // these are the individual sections
-        if (0 != strstr(requ, "/neighbors")) send_what |= SIW_NEIGHBORS;
-        if (0 != strstr(requ, "/links")) send_what |= SIW_LINKS;
-        if (0 != strstr(requ, "/routes")) send_what |= SIW_ROUTES;
-        if (0 != strstr(requ, "/hna")) send_what |= SIW_HNA;
-        if (0 != strstr(requ, "/mid")) send_what |= SIW_MID;
-        if (0 != strstr(requ, "/topology")) send_what |= SIW_TOPOLOGY;
-        if (0 != strstr(requ, "/gateways")) send_what |= SIW_GATEWAYS;
-        if (0 != strstr(requ, "/interfaces")) send_what |= SIW_INTERFACES;
-        if (0 != strstr(requ, "/config")) send_what |= SIW_CONFIG;
-        if (0 != strstr(requ, "/plugins")) send_what |= SIW_PLUGINS;
+#ifndef NODEBUG
+      olsr_printf(2, "(JSONINFO) request: %s\n", requ);
+#endif /* NODEBUG */
+      if(0 != strstr(requ, "OPTIONS")) {
+        send_what = SIW_CORS;
+      } else {
+        /* print out the requested tables */
+        if (0 != strstr(requ, "/olsrd.conf"))
+          send_what |= SIW_OLSRD_CONF;
+        else if (0 != strstr(requ, "/all"))
+          send_what = SIW_ALL;
+        else {
+          // these are the two overarching categories
+          if (0 != strstr(requ, "/runtime")) send_what |= SIW_RUNTIME_ALL;
+          if (0 != strstr(requ, "/startup")) send_what |= SIW_STARTUP_ALL;
+          // these are the individual sections
+          if (0 != strstr(requ, "/neighbors")) send_what |= SIW_NEIGHBORS;
+          if (0 != strstr(requ, "/links")) send_what |= SIW_LINKS;
+          if (0 != strstr(requ, "/routes")) send_what |= SIW_ROUTES;
+          if (0 != strstr(requ, "/hna")) send_what |= SIW_HNA;
+          if (0 != strstr(requ, "/mid")) send_what |= SIW_MID;
+          if (0 != strstr(requ, "/topology")) send_what |= SIW_TOPOLOGY;
+          if (0 != strstr(requ, "/gateways")) send_what |= SIW_GATEWAYS;
+          if (0 != strstr(requ, "/interfaces")) send_what |= SIW_INTERFACES;
+          if (0 != strstr(requ, "/config")) send_what |= SIW_CONFIG;
+          if (0 != strstr(requ, "/plugins")) send_what |= SIW_PLUGINS;
+        }
       }
     }
     if ( send_what == 0 ) send_what = SIW_ALL;
@@ -1281,6 +1280,7 @@ send_info(unsigned int send_what, int the_socket)
   struct autobuf abuf;
   size_t header_len = 0;
   char header_buf[MAX_HTTPREQ_SIZE];
+  const char *content_type = "application/json";
 
   /* global variables for tracking when to put a comma in for JSON */
   entrynumber[0] = 0;
@@ -1317,12 +1317,20 @@ send_info(unsigned int send_what, int the_socket)
   /* this outputs the olsrd.conf text directly, not JSON */
   if ((send_what & SIW_OLSRD_CONF) == SIW_OLSRD_CONF) {
     ipc_print_olsrd_conf(&abuf);
+    content_type = "text/plain";
+  }
+
+  /* this outputs only the HTTP headers */
+  if ((send_what & SIW_CORS) == SIW_CORS) {
+    /* In case of empty body browsers complains about the reply they receives.*/
+    abuf_puts(&abuf, "\r\n");
+    content_type = NULL;
   }
 
 
   if(http_headers) {
     memset(header_buf, 0, sizeof(header_buf));
-    header_len = build_http_header(HTTP_OK, "application/json", false, abuf.len, header_buf, sizeof(header_buf));
+    header_len = build_http_header(HTTP_200, content_type, abuf.len, header_buf, sizeof(header_buf));
   }
 
   if (header_len + abuf.len > 0) {
@@ -1351,32 +1359,20 @@ send_info(unsigned int send_what, int the_socket)
 }
 
 static size_t
-build_http_header(http_header_type type, const char *mime, bool binary_data, uint32_t msgsize, char *buf, uint32_t bufsize)
+build_http_header(const char *status, const char *mime, uint32_t msgsize,
+  char *buf, uint32_t bufsize)
 {
   time_t currtime;
-  const char *h;
   size_t size;
 
-  switch (type) {
-  case HTTP_BAD_REQ:
-    h = HTTP_400;
-    break;
-  case HTTP_BAD_FILE:
-    h = HTTP_404;
-    break;
-  default:
-    /* Defaults to OK */
-    h = HTTP_200;
-    break;
-  }
-  size = snprintf(buf, bufsize, "%s", h);
+  size = snprintf(buf, bufsize, "%s\r\n", status);
 
   /* Date */
   time(&currtime);
   size += strftime(&buf[size], bufsize - size, "Date: %a, %d %b %Y %H:%M:%S GMT\r\n", localtime(&currtime));
 
   /* Server version */
-  size += snprintf(&buf[size], bufsize - size, "Server: %s %s %s\r\n", PLUGIN_NAME, PLUGIN_VERSION, HTTP_VERSION);
+  size += snprintf(&buf[size], bufsize - size, "Server: %s %s\r\n", PLUGIN_NAME, PLUGIN_VERSION);
 
   /* connection-type */
   size += snprintf(&buf[size], bufsize - size, "Connection: closed\r\n");
@@ -1386,6 +1382,13 @@ build_http_header(http_header_type type, const char *mime, bool binary_data, uin
     size += snprintf(&buf[size], bufsize - size, "Content-type: %s\r\n", mime);
   }
 
+  /* CORS data */
+  /**No needs to be strict here, access control is based on source IP*/
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Origin: *\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Methods: GET, OPTIONS\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Headers: Accept, Origin, X-Requested-With\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Max-Age: 1728000\r\n");
+  
   /* Content length */
   if (msgsize > 0) {
     size += snprintf(&buf[size], bufsize - size, "Content-length: %i\r\n", msgsize);
@@ -1396,9 +1399,6 @@ build_http_header(http_header_type type, const char *mime, bool binary_data, uin
    */
   size += snprintf(&buf[size], bufsize - size, "Cache-Control: no-cache\r\n");
 
-  if (binary_data) {
-    size += snprintf(&buf[size], bufsize - size, "Accept-Ranges: bytes\r\n");
-  }
   /* End header */
   size += snprintf(&buf[size], bufsize - size, "\r\n");
 
