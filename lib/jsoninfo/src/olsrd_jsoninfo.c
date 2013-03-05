@@ -5,6 +5,7 @@
  *                     includes code by Andreas Lopatic
  *                     includes code by Sven-Ola Tuecke
  *                     includes code by Lorenz Schori
+ *                     includes code by Alessio Caiazza
  *                     includes bugs by Markus Kittenberger
  *                     includes bugs by Hans-Christoph Steiner
  * All rights reserved.
@@ -95,16 +96,8 @@
 
 static int ipc_socket;
 
-#define HTTP_VERSION "HTTP/1.1"
-
 /**Response types */
-#define HTTP_200 HTTP_VERSION " 200 OK"
-#define HTTP_400 HTTP_VERSION " 400 Bad Request"
-#define HTTP_404 HTTP_VERSION " 404 Not Found"
-
-#define HTTP_400_MSG "<html><h1>400 - ERROR</h1><hr><i>" PLUGIN_NAME " version " PLUGIN_VERSION  "</i></html>"
-#define HTTP_404_MSG "<html><h1>404 - ERROR, no such file</h1><hr>This server does not support file requests!<br><br><i>" PLUGIN_NAME " version " PLUGIN_VERSION  "</i></html>"
-
+#define HTTP_200 "HTTP/1.1 200 OK"
 
 /* IPC initialization function */
 static int plugin_ipc_init(void);
@@ -164,12 +157,8 @@ static size_t build_http_header(const char *status, const char *mime,
 /* this data is not JSON format but olsrd.conf format */
 #define SIW_OLSRD_CONF 0x1000
 
-/* this data is not JSON format but Cross-origin resource sharing headers */
-#define SIW_CORS 0x2000
-
 #define MAX_CLIENTS 3
-
-#define MAX_HTTPREQ_SIZE (1024 * 8)
+#define MAX_HTTPHEADER_SIZE (1024 * 8)
 
 static char *outbuffer[MAX_CLIENTS];
 static size_t outbuffer_size[MAX_CLIENTS];
@@ -534,30 +523,26 @@ ipc_action(int fd, void *data __attribute__ ((unused)), unsigned int flags __att
 #ifndef NODEBUG
       olsr_printf(2, "(JSONINFO) request: %s\n", requ);
 #endif /* NODEBUG */
-      if(0 != strstr(requ, "OPTIONS")) {
-        send_what = SIW_CORS;
-      } else {
-        /* print out the requested tables */
-        if (0 != strstr(requ, "/olsrd.conf"))
-          send_what |= SIW_OLSRD_CONF;
-        else if (0 != strstr(requ, "/all"))
-          send_what = SIW_ALL;
-        else {
-          // these are the two overarching categories
-          if (0 != strstr(requ, "/runtime")) send_what |= SIW_RUNTIME_ALL;
-          if (0 != strstr(requ, "/startup")) send_what |= SIW_STARTUP_ALL;
-          // these are the individual sections
-          if (0 != strstr(requ, "/neighbors")) send_what |= SIW_NEIGHBORS;
-          if (0 != strstr(requ, "/links")) send_what |= SIW_LINKS;
-          if (0 != strstr(requ, "/routes")) send_what |= SIW_ROUTES;
-          if (0 != strstr(requ, "/hna")) send_what |= SIW_HNA;
-          if (0 != strstr(requ, "/mid")) send_what |= SIW_MID;
-          if (0 != strstr(requ, "/topology")) send_what |= SIW_TOPOLOGY;
-          if (0 != strstr(requ, "/gateways")) send_what |= SIW_GATEWAYS;
-          if (0 != strstr(requ, "/interfaces")) send_what |= SIW_INTERFACES;
-          if (0 != strstr(requ, "/config")) send_what |= SIW_CONFIG;
-          if (0 != strstr(requ, "/plugins")) send_what |= SIW_PLUGINS;
-        }
+      /* print out the requested tables */
+      if (0 != strstr(requ, "/olsrd.conf"))
+        send_what |= SIW_OLSRD_CONF;
+      else if (0 != strstr(requ, "/all"))
+        send_what = SIW_ALL;
+      else {
+        // these are the two overarching categories
+        if (0 != strstr(requ, "/runtime")) send_what |= SIW_RUNTIME_ALL;
+        if (0 != strstr(requ, "/startup")) send_what |= SIW_STARTUP_ALL;
+        // these are the individual sections
+        if (0 != strstr(requ, "/neighbors")) send_what |= SIW_NEIGHBORS;
+        if (0 != strstr(requ, "/links")) send_what |= SIW_LINKS;
+        if (0 != strstr(requ, "/routes")) send_what |= SIW_ROUTES;
+        if (0 != strstr(requ, "/hna")) send_what |= SIW_HNA;
+        if (0 != strstr(requ, "/mid")) send_what |= SIW_MID;
+        if (0 != strstr(requ, "/topology")) send_what |= SIW_TOPOLOGY;
+        if (0 != strstr(requ, "/gateways")) send_what |= SIW_GATEWAYS;
+        if (0 != strstr(requ, "/interfaces")) send_what |= SIW_INTERFACES;
+        if (0 != strstr(requ, "/config")) send_what |= SIW_CONFIG;
+        if (0 != strstr(requ, "/plugins")) send_what |= SIW_PLUGINS;
       }
     }
     if ( send_what == 0 ) send_what = SIW_ALL;
@@ -1279,7 +1264,7 @@ send_info(unsigned int send_what, int the_socket)
 {
   struct autobuf abuf;
   size_t header_len = 0;
-  char header_buf[MAX_HTTPREQ_SIZE];
+  char header_buf[MAX_HTTPHEADER_SIZE];
   const char *content_type = "application/json";
 
   /* global variables for tracking when to put a comma in for JSON */
@@ -1319,14 +1304,6 @@ send_info(unsigned int send_what, int the_socket)
     ipc_print_olsrd_conf(&abuf);
     content_type = "text/plain";
   }
-
-  /* this outputs only the HTTP headers */
-  if ((send_what & SIW_CORS) == SIW_CORS) {
-    /* In case of empty body browsers complains about the reply they receives.*/
-    abuf_puts(&abuf, "\r\n");
-    content_type = NULL;
-  }
-
 
   if(http_headers) {
     memset(header_buf, 0, sizeof(header_buf));
@@ -1385,10 +1362,10 @@ build_http_header(const char *status, const char *mime, uint32_t msgsize,
   /* CORS data */
   /**No needs to be strict here, access control is based on source IP*/
   size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Origin: *\r\n");
-  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Methods: GET, OPTIONS\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
   size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Headers: Accept, Origin, X-Requested-With\r\n");
   size += snprintf(&buf[size], bufsize - size, "Access-Control-Max-Age: 1728000\r\n");
-  
+
   /* Content length */
   if (msgsize > 0) {
     size += snprintf(&buf[size], bufsize - size, "Content-length: %i\r\n", msgsize);
