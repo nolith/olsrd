@@ -1,8 +1,6 @@
-
 /*
  * The olsr.org Optimized Link-State Routing daemon(olsrd)
  * Copyright (c) 2004, Andreas Tonnesen(andreto@olsr.org)
- *                     includes code by Bruno Randolf
  *                     includes code by Alessio Caiazza
  * All rights reserved.
  *
@@ -45,36 +43,26 @@
  * Dynamic linked library for the olsr.org olsr daemon
  */
 
-#ifndef _OLSRD_JSONINFO
-#define _OLSRD_JSONINFO
+#ifndef _OLSRD_JSON_INFO
+#define _OLSRD_JSON_INFO
 
-#include "olsr_types.h"
 #include "olsrd_plugin.h"
 #include "plugin_util.h"
 
-/* uncomment this to allow connections from 127.0.0.1 regardless of olsrd.conf (useful to allow externel ip/network + localhost) (ipv4 only)*/
-/* #define JSONINFO_ALLOW_LOCALHOST */
+#define PLUGIN_NAME    "JSON info and dyn_gw plugin"
+#define PLUGIN_VERSION "0.0"
+#define PLUGIN_AUTHOR   "Hans-Christoph Steiner"
+#define MOD_DESC PLUGIN_NAME " " PLUGIN_VERSION " by " PLUGIN_AUTHOR
+#define PLUGIN_INTERFACE_VERSION 5
 
-#define UUIDLEN 256
-extern char uuid[UUIDLEN + 1];
-extern char uuidfile[FILENAME_MAX];
 
-extern union olsr_ip_addr jsoninfo_accept_ip;
-extern union olsr_ip_addr jsoninfo_listen_ip;
-extern int ipc_port;
-extern int nompr;
-extern bool http_headers;
-
-int olsrd_plugin_interface_version(void);
-int olsrd_plugin_init(void);
-void olsr_plugin_exit(void);
-void olsrd_get_plugin_parameters(const struct olsrd_plugin_parameters **params, int *size);
-
-#endif /* _OLSRD_JSONINFO */
+#endif /* _OLSRD_JSON_INFO */
 
 /*
  * Local Variables:
- * c-basic-offset: 2
+ * mode: c
+ * style: linux
+ * c-basic-offset: 4
  * indent-tabs-mode: nil
  * End:
  */
