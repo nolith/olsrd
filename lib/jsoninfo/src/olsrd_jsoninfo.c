@@ -5,6 +5,7 @@
  *                     includes code by Andreas Lopatic
  *                     includes code by Sven-Ola Tuecke
  *                     includes code by Lorenz Schori
+ *                     includes code by Alessio Caiazza
  *                     includes bugs by Markus Kittenberger
  *                     includes bugs by Hans-Christoph Steiner
  * All rights reserved.
@@ -96,6 +97,9 @@
 
 static int ipc_socket;
 
+/**Response types */
+#define HTTP_200 "HTTP/1.1 200 OK"
+
 /* IPC initialization function */
 static int plugin_ipc_init(void);
 
@@ -126,6 +130,9 @@ static void ipc_print_interfaces(struct autobuf *);
 static void ipc_print_plugins(struct autobuf *);
 static void ipc_print_olsrd_conf(struct autobuf *abuf);
 
+static size_t build_http_header(const char *status, const char *mime,
+  uint32_t msgsize, char *buf, uint32_t bufsize);
+
 #define TXT_IPC_BUFSIZE 256
 
 /* these provide all of the runtime status info */
@@ -151,6 +158,7 @@ static void ipc_print_olsrd_conf(struct autobuf *abuf);
 #define SIW_OLSRD_CONF 0x1000
 
 #define MAX_CLIENTS 3
+#define MAX_HTTPHEADER_SIZE 1024
 
 static char *outbuffer[MAX_CLIENTS];
 static size_t outbuffer_size[MAX_CLIENTS];
@@ -519,6 +527,9 @@ ipc_action(int fd, void *data __attribute__ ((unused)), unsigned int flags __att
     }
     if (0 < s) {
       requ[s] = 0;
+#ifndef NODEBUG
+      olsr_printf(2, "(JSONINFO) request: %s\n", requ);
+#endif /* NODEBUG */
       /* print out the requested tables */
       if (0 != strstr(requ, "/olsrd.conf"))
         send_what |= SIW_OLSRD_CONF;
@@ -1282,6 +1293,9 @@ static void
 send_info(unsigned int send_what, int the_socket)
 {
   struct autobuf abuf;
+  size_t header_len = 0;
+  char header_buf[MAX_HTTPHEADER_SIZE];
+  const char *content_type = "application/json";
 
   /* global variables for tracking when to put a comma in for JSON */
   entrynumber[0] = 0;
@@ -1318,26 +1332,88 @@ send_info(unsigned int send_what, int the_socket)
   /* this outputs the olsrd.conf text directly, not JSON */
   if ((send_what & SIW_OLSRD_CONF) == SIW_OLSRD_CONF) {
     ipc_print_olsrd_conf(&abuf);
+    content_type = "text/plain";
   }
 
-  outbuffer[outbuffer_count] = olsr_malloc(abuf.len, "txt output buffer");
-  outbuffer_size[outbuffer_count] = abuf.len;
-  outbuffer_written[outbuffer_count] = 0;
-  outbuffer_socket[outbuffer_count] = the_socket;
+  if(http_headers) {
+    memset(header_buf, 0, sizeof(header_buf));
+    header_len = build_http_header(HTTP_200, content_type, abuf.len, header_buf, sizeof(header_buf));
+  }
 
-  memcpy(outbuffer[outbuffer_count], abuf.buf, abuf.len);
-  outbuffer_count++;
+  if (header_len + abuf.len > 0) {
+    outbuffer[outbuffer_count] = olsr_malloc(header_len + abuf.len, "json output buffer");
+    outbuffer_size[outbuffer_count] = header_len + abuf.len;
+    outbuffer_written[outbuffer_count] = 0;
+    outbuffer_socket[outbuffer_count] = the_socket;
 
-  if (outbuffer_count == 1) {
-    writetimer_entry = olsr_start_timer(100,
+    memcpy(outbuffer[outbuffer_count], header_buf, header_len);
+    if (abuf.len > 0) {
+      memcpy((outbuffer[outbuffer_count]) + header_len, abuf.buf, abuf.len);
+    }
+    outbuffer_count++;
+
+    if (outbuffer_count == 1) {
+      writetimer_entry = olsr_start_timer(100,
                                         0,
                                         OLSR_TIMER_PERIODIC,
                                         &jsoninfo_write_data,
                                         NULL,
                                         0);
+    }
   }
 
   abuf_free(&abuf);
+}
+
+static size_t
+build_http_header(const char *status, const char *mime, uint32_t msgsize,
+  char *buf, uint32_t bufsize)
+{
+  time_t currtime;
+  size_t size;
+
+  size = snprintf(buf, bufsize, "%s\r\n", status);
+
+  /* Date */
+  time(&currtime);
+  size += strftime(&buf[size], bufsize - size, "Date: %a, %d %b %Y %H:%M:%S GMT\r\n", localtime(&currtime));
+
+  /* Server version */
+  size += snprintf(&buf[size], bufsize - size, "Server: %s %s\r\n", PLUGIN_NAME, PLUGIN_VERSION);
+
+  /* connection-type */
+  size += snprintf(&buf[size], bufsize - size, "Connection: closed\r\n");
+
+  /* MIME type */
+  if(mime != NULL) {
+    size += snprintf(&buf[size], bufsize - size, "Content-type: %s\r\n", mime);
+  }
+
+  /* CORS data */
+  /**No needs to be strict here, access control is based on source IP*/
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Origin: *\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Allow-Headers: Accept, Origin, X-Requested-With\r\n");
+  size += snprintf(&buf[size], bufsize - size, "Access-Control-Max-Age: 1728000\r\n");
+
+  /* Content length */
+  if (msgsize > 0) {
+    size += snprintf(&buf[size], bufsize - size, "Content-length: %i\r\n", msgsize);
+  }
+
+  /* Cache-control
+   * No caching dynamic pages
+   */
+  size += snprintf(&buf[size], bufsize - size, "Cache-Control: no-cache\r\n");
+
+  /* End header */
+  size += snprintf(&buf[size], bufsize - size, "\r\n");
+
+#ifndef NODEBUG
+  olsr_printf(1, "(JSONINFO) HEADER:\n%s", buf);
+#endif /* NODEBUG */
+
+  return size;
 }
 
 /*
