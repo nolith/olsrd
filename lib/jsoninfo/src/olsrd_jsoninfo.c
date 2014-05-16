@@ -1340,9 +1340,7 @@ send_info(unsigned int send_what, int the_socket)
   outbuffer_socket[outbuffer_count] = the_socket;
 
   memcpy(outbuffer[outbuffer_count], header_buf, header_len);
-  if (abuf.len > 0) {
-    memcpy((outbuffer[outbuffer_count]) + header_len, abuf.buf, abuf.len);
-  }
+  memcpy((outbuffer[outbuffer_count]) + header_len, abuf.buf, abuf.len);
   outbuffer_count++;
 
   if (outbuffer_count == 1) {
