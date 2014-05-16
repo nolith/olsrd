@@ -5,7 +5,6 @@
  *                     includes code by Andreas Lopatic
  *                     includes code by Sven-Ola Tuecke
  *                     includes code by Lorenz Schori
- *                     includes code by Alessio Caiazza
  *                     includes bugs by Markus Kittenberger
  *                     includes bugs by Hans-Christoph Steiner
  * All rights reserved.
@@ -159,6 +158,7 @@ static size_t build_http_header(const char *status, const char *mime,
 
 #define MAX_CLIENTS 3
 #define MAX_HTTPHEADER_SIZE 1024
+#define MAX_CONTENT_TYPE_SIZE 17
 
 static char *outbuffer[MAX_CLIENTS];
 static size_t outbuffer_size[MAX_CLIENTS];
@@ -1292,7 +1292,7 @@ send_info(unsigned int send_what, int the_socket)
   struct autobuf abuf;
   size_t header_len = 0;
   char header_buf[MAX_HTTPHEADER_SIZE];
-  const char *content_type = "application/json";
+  char content_type[MAX_CONTENT_TYPE_SIZE];
 
   /* global variables for tracking when to put a comma in for JSON */
   entrynumber[0] = 0;
@@ -1329,34 +1329,33 @@ send_info(unsigned int send_what, int the_socket)
   /* this outputs the olsrd.conf text directly, not JSON */
   if ((send_what & SIW_OLSRD_CONF) == SIW_OLSRD_CONF) {
     ipc_print_olsrd_conf(&abuf);
-    content_type = "text/plain";
+    strcpy(content_type, "text/plain");
+  } else {
+    strcpy(content_type, "application/json");
   }
 
   if(http_headers) {
-    memset(header_buf, 0, sizeof(header_buf));
     header_len = build_http_header(HTTP_200, content_type, abuf.len, header_buf, sizeof(header_buf));
   }
 
-  if (header_len + abuf.len > 0) {
-    outbuffer[outbuffer_count] = olsr_malloc(header_len + abuf.len, "json output buffer");
-    outbuffer_size[outbuffer_count] = header_len + abuf.len;
-    outbuffer_written[outbuffer_count] = 0;
-    outbuffer_socket[outbuffer_count] = the_socket;
+  outbuffer[outbuffer_count] = olsr_malloc(header_len + abuf.len, "json output buffer");
+  outbuffer_size[outbuffer_count] = header_len + abuf.len;
+  outbuffer_written[outbuffer_count] = 0;
+  outbuffer_socket[outbuffer_count] = the_socket;
 
-    memcpy(outbuffer[outbuffer_count], header_buf, header_len);
-    if (abuf.len > 0) {
-      memcpy((outbuffer[outbuffer_count]) + header_len, abuf.buf, abuf.len);
-    }
-    outbuffer_count++;
+  memcpy(outbuffer[outbuffer_count], header_buf, header_len);
+  if (abuf.len > 0) {
+    memcpy((outbuffer[outbuffer_count]) + header_len, abuf.buf, abuf.len);
+  }
+  outbuffer_count++;
 
-    if (outbuffer_count == 1) {
-      writetimer_entry = olsr_start_timer(100,
+  if (outbuffer_count == 1) {
+    writetimer_entry = olsr_start_timer(100,
                                         0,
                                         OLSR_TIMER_PERIODIC,
                                         &jsoninfo_write_data,
                                         NULL,
                                         0);
-    }
   }
 
   abuf_free(&abuf);
