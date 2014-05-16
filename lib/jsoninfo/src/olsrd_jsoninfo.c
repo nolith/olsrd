@@ -158,7 +158,6 @@ static size_t build_http_header(const char *status, const char *mime,
 
 #define MAX_CLIENTS 3
 #define MAX_HTTPHEADER_SIZE 1024
-#define MAX_CONTENT_TYPE_SIZE 17
 
 static char *outbuffer[MAX_CLIENTS];
 static size_t outbuffer_size[MAX_CLIENTS];
@@ -1292,7 +1291,7 @@ send_info(unsigned int send_what, int the_socket)
   struct autobuf abuf;
   size_t header_len = 0;
   char header_buf[MAX_HTTPHEADER_SIZE];
-  char content_type[MAX_CONTENT_TYPE_SIZE];
+  const char *content_type = "application/json";
 
   /* global variables for tracking when to put a comma in for JSON */
   entrynumber[0] = 0;
@@ -1329,9 +1328,6 @@ send_info(unsigned int send_what, int the_socket)
   /* this outputs the olsrd.conf text directly, not JSON */
   if ((send_what & SIW_OLSRD_CONF) == SIW_OLSRD_CONF) {
     ipc_print_olsrd_conf(&abuf);
-    strcpy(content_type, "text/plain");
-  } else {
-    strcpy(content_type, "application/json");
   }
 
   if(http_headers) {
