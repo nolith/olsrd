@@ -75,7 +75,7 @@ LoadPlugin "olsrd_jsoninfo.so.0.0"
 
     # The "httpheaders" parameter prepends HTTP headers to the reply.
     # If not set it will default to "no" and have the same behaviour as before.
-    # Alomong with a minimal set of headers also Cross-origin resource sharing
+    # Among with a minimal set of headers also Cross-origin resource sharing
     # headers (CORS) are included in reply allowing the json retrieval by
     # javascript applications not served by olsrd itself.
     # You can enable it uncommenting the following line:
