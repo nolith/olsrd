@@ -73,6 +73,9 @@ LoadPlugin "olsrd_jsoninfo.so.0.0"
     # if you set it to 0.0.0.0, it will accept all connections
     #PlParam      "accept" "0.0.0.0"
 
+    # reply can include standard HTTP headers (default "no")
+    #PlParam      "httpheaders" "yes"
+
     # specify a UUID for this node to track it for debugging
     #PlParam      "UUIDFile" "/etc/olsrd/olsrd.uuid"
 }

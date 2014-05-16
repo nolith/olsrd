@@ -3,6 +3,7 @@
  * The olsr.org Optimized Link-State Routing daemon(olsrd)
  * Copyright (c) 2004, Andreas Tonnesen(andreto@olsr.org)
  *                     includes code by Bruno Randolf
+ *                     includes code by Alessio Caiazza
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -62,6 +63,7 @@ extern union olsr_ip_addr jsoninfo_accept_ip;
 extern union olsr_ip_addr jsoninfo_listen_ip;
 extern int ipc_port;
 extern int nompr;
+extern bool http_headers;
 
 int olsrd_plugin_interface_version(void);
 int olsrd_plugin_init(void);
