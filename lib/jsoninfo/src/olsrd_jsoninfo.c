@@ -96,7 +96,7 @@
 
 static int ipc_socket;
 
-/**Response types */
+/* Response types */
 #define HTTP_200 "HTTP/1.1 200 OK"
 
 /* IPC initialization function */
@@ -132,6 +132,15 @@ static void ipc_print_olsrd_conf(struct autobuf *abuf);
 static size_t build_http_header(const char *status, const char *mime,
   uint32_t msgsize, char *buf, uint32_t bufsize);
 
+/*
+ * this is the size of the buffer used for build_http_header
+ * the amount of data written into the buffer will be less than
+ * 400 bytes approximatively.
+ * The size may vary because the Content-Length header contains
+ * the length of the json data
+ */
+#define MAX_HTTPHEADER_SIZE 512
+
 #define TXT_IPC_BUFSIZE 256
 
 /* these provide all of the runtime status info */
@@ -157,7 +166,6 @@ static size_t build_http_header(const char *status, const char *mime,
 #define SIW_OLSRD_CONF 0x1000
 
 #define MAX_CLIENTS 3
-#define MAX_HTTPHEADER_SIZE 1024
 
 static char *outbuffer[MAX_CLIENTS];
 static size_t outbuffer_size[MAX_CLIENTS];
